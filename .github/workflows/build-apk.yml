@@ -39,28 +39,41 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          yes | buildozer -v android debug 2>&1 | tee build.log
+          # licencja SDK akceptowana przez android.accept_sdk_license = True w buildozer.spec
+          buildozer -v android debug < /dev/null 2>&1 | tee build.log
+          ls -la bin/
 
       - name: Pokaż przyczynę błędu
         if: failure()
         shell: bash
         run: |
-          echo "=========== NAJWAŻNIEJSZE BŁĘDY ==========="
-          grep -n -iE "error:|error [0-9]|exception|traceback|fatal|failed" build.log \
-            | grep -v -E "Dependency for .* not resolved" | tail -n 60 || true
-          echo "=========== OSTATNIE LINIE PRZED 'Command failed' ==========="
-          n=$(grep -n "Command failed" build.log | tail -n 1 | cut -d: -f1)
-          if [ -n "$n" ]; then sed -n "$((n-80)),$((n))p" build.log; fi
+          sed -r 's/\x1B\[[0-9;]*[A-Za-z]//g' build.log > clean.log || true
+          {
+            echo "## Przyczyna błędu"
+            echo '```'
+            grep -iE "error:|error [0-9]|traceback|fatal|failed|not found|what went wrong" clean.log \
+              | grep -v -E "Dependency for .* not resolved|Py_UNICODE|ENVIRONMENT|clang-14: error|first build failed" \
+              | tail -n 40 || true
+            echo '```'
+            echo "## Ostatnie linie przed 'Command failed'"
+            echo '```'
+            n=$(grep -n "Command failed" clean.log | tail -n 1 | cut -d: -f1)
+            if [ -n "$n" ]; then s=$(( n > 60 ? n - 60 : 1 )); sed -n "${s},${n}p" clean.log; else tail -n 60 clean.log; fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY" || true
 
       - name: Zapisz pełny log
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: build-log
           path: build.log
 
       - name: Udostępnij APK
-        uses: actions/upload-artifact@v5
+        if: always()
+        uses: actions/upload-artifact@v6
         with:
           name: SpisGier-apk
           path: bin/*.apk
+          if-no-files-found: warn
